@@ -6,9 +6,11 @@ from datetime import datetime
 import pytz
 from flask import Flask
 
+# Load secrets from environment
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 FINNHUB_API_KEY = os.getenv("API_KEY")
+APP_URL = os.getenv("RENDER_EXTERNAL_URL")  # Provided automatically by Render
 
 app = Flask(__name__)
 PREVIOUS_SYMBOLS = set()
@@ -16,7 +18,7 @@ LAST_HOURLY_SENT = -1
 
 @app.route('/')
 def home():
-    return "✅ Live Market Screener is running!"
+    return "✅ Live Market Screener is active and pingable."
 
 def send_telegram(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -85,7 +87,7 @@ def run_screener():
                         f"Market Cap: ${mcap:.1f}M"
                     )
 
-        # Send hourly update at start of hour
+        # Hourly summary
         if current_minute < 10 and current_hour != LAST_HOURLY_SENT:
             if selected:
                 summary = "\n\n".join(
@@ -108,9 +110,20 @@ def background_loop():
         run_screener()
         time.sleep(600)  # every 10 minutes
 
-# Start background thread
-threading.Thread(target=background_loop, daemon=True).start()
+def ping_self_loop():
+    while True:
+        try:
+            if APP_URL:
+                print("🔁 Pinging self to stay alive...")
+                requests.get(APP_URL)
+        except Exception as e:
+            print("❌ Ping self failed:", str(e))
+        time.sleep(840)  # every 14 minutes
 
-# Start Flask server for Render
+# Start both background threads
+threading.Thread(target=background_loop, daemon=True).start()
+threading.Thread(target=ping_self_loop, daemon=True).start()
+
+# Start the web server
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
