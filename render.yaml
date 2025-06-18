@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: LiveMarketScreener
+    env: python
+    buildCommand: ""
+    startCommand: "python regular_hours_screener.py"
+    plan: free
