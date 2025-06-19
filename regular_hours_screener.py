@@ -109,5 +109,16 @@ def schedule_loop():
         time.sleep(600)  # every 10 minutes
 
 if __name__ == '__main__':
-    Thread(target=schedule_loop).start()
+    from threading import Thread
+
+    def ping_self():
+        while True:
+            try:
+                requests.get("https://live-market-screener.onrender.com/scan")
+            except:
+                pass
+            time.sleep(600)  # every 10 minutes
+
+    Thread(target=ping_self).start()
     app.run(host="0.0.0.0", port=10000)
+
