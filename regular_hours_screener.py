@@ -22,7 +22,7 @@ def scan_and_alert():
     market_start = now.replace(hour=9, minute=30, second=0, microsecond=0)
     market_end = now.replace(hour=16, minute=0, second=0, microsecond=0)
     if not (market_start <= now <= market_end):
-        print("Outside regular market hours. Skipping scan.")
+        print("Outside live market hours (9:30 AM to 4:00 PM EST). Skipping scan.")
         return
 
     print("\n[INFO] Live market scan triggered at:", now.strftime("%Y-%m-%d %H:%M:%S"))
@@ -51,12 +51,12 @@ def scan_and_alert():
             if not all([c, pc, v]) or c > 5:
                 continue
 
-            # Filter: 20%+ gain since market open
+            # Filter: 10%+ gain from open
             percent_change = ((c - pc) / pc) * 100 if pc else 0
-            if percent_change < 20:
+            if percent_change < 10:
                 continue
 
-            # Filter: volume > 1M for live market
+            # Filter: volume > 1M
             if v < 1_000_000:
                 continue
 
@@ -67,7 +67,7 @@ def scan_and_alert():
             if market_cap > 300:
                 continue
 
-            # Relative volume (optional)
+            # Relative volume
             metrics_url = f"https://finnhub.io/api/v1/stock/metric?symbol={symbol}&metric=all&token={API_KEY}"
             m = requests.get(metrics_url).json()
             rel_vol = m.get("metric", {}).get("relativeVolume", 0)
@@ -106,7 +106,7 @@ def manual_scan():
 def schedule_loop():
     while True:
         scan_and_alert()
-        time.sleep(600)  # 10 minutes
+        time.sleep(600)  # every 10 minutes
 
 if __name__ == '__main__':
     Thread(target=schedule_loop).start()
