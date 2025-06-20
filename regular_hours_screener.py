@@ -12,7 +12,7 @@ CHAT_ID = os.environ.get("chat_id")
 app = Flask(__name__)
 
 PRICE_LIMIT = 5.00
-GAP_PERCENT = 10.01  # Must be over 10% strictly
+GAP_PERCENT = 10
 VOLUME_MIN = 1_000_000
 REL_VOL_MIN = 2
 
@@ -56,17 +56,11 @@ def get_metrics(symbol):
         return None
 
 def scan_stocks():
-    print(f"[SCAN TRIGGERED] {datetime.now()}")
+    print(f"Scanning stocks at {datetime.now()}")  # Debug
     symbols = fetch_stock_symbols()
-    if not symbols:
-        send_telegram_message("⚠️ No symbols fetched from Finnhub. Possible API issue.")
-        return
-
     matching_stocks = []
-    checked = 0
 
     for symbol in symbols:
-        checked += 1
         data = get_metrics(symbol)
         if not data:
             continue
@@ -80,11 +74,11 @@ def scan_stocks():
         if not all([price, prev_close, volume, rel_vol, cap]):
             continue
 
-        if price >= PRICE_LIMIT:
+        if price > PRICE_LIMIT:
             continue
 
         change_percent = ((price - prev_close) / prev_close) * 100 if prev_close else 0
-        if change_percent <= GAP_PERCENT:
+        if change_percent < GAP_PERCENT:
             continue
 
         if volume < VOLUME_MIN or rel_vol < REL_VOL_MIN:
@@ -110,7 +104,7 @@ def scan_stocks():
                         f"  Vol: {stock['volume']:,} | RelVol: {stock['rel_vol']:.2f}\n\n")
         send_telegram_message(message.strip())
     else:
-        send_telegram_message(f"No stocks matched criteria (out of {checked}) @ {now_str}.")
+        send_telegram_message(f"No stocks matched the criteria as of {now_str}.")
 
 @app.route("/")
 def home():
@@ -121,14 +115,14 @@ def scan():
     scan_stocks()
     return "Scan done."
 
+# ✅ Temporary Debug Route to test API connectivity
 @app.route("/test-api")
 def test_api():
     try:
-        response = requests.get("https://finnhub.io/api/v1/quote?symbol=AAPL&token=" + API_KEY)
+        response = requests.get(f"https://finnhub.io/api/v1/quote?symbol=AAPL&token={API_KEY}")
         return str(response.json())
     except Exception as e:
         return str(e)
-
 
 if __name__ == "__main__":
     def ping_self():
@@ -137,7 +131,7 @@ if __name__ == "__main__":
                 requests.get("https://live-market-screener.onrender.com/scan")
             except:
                 pass
-            time.sleep(600)
+            time.sleep(600)  # every 10 minutes
 
     threading.Thread(target=ping_self).start()
     app.run(host="0.0.0.0", port=10000)
