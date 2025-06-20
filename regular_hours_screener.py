@@ -1,38 +1,41 @@
 import os
 import requests
-from datetime import datetime
 from flask import Flask
-import pytz
+import threading
 import time
+from datetime import datetime
+
+API_KEY = os.environ.get("FINNHUB_API_KEY")
+BOT_TOKEN = os.environ.get("bot_token")
+CHAT_ID = os.environ.get("chat_id")
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ.get("bot_token")
-CHAT_ID = os.environ.get("chat_id")
-FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY")
-
-HEADERS = {
-    "X-Finnhub-Token": FINNHUB_API_KEY
-}
-
 PRICE_LIMIT = 5.00
 GAP_PERCENT = 10
-VOLUME_MIN = 1000000
+VOLUME_MIN = 1_000_000
 REL_VOL_MIN = 2
-TIMEZONE = pytz.timezone("US/Eastern")
-SCAN_HOURS = range(9, 16)  # 9:00 AM to 3:59 PM EST
 
-last_alerted = {}
+HEADERS = {
+    "X-Finnhub-Token": API_KEY
+}
 
-def is_market_hours():
-    now = datetime.now(TIMEZONE)
-    return now.hour in SCAN_HOURS
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message}
+    try:
+        requests.post(url, data=payload)
+    except:
+        pass
 
-def fetch_stocks():
-    url = f"https://finnhub.io/api/v1/stock/symbol?exchange=US&token={FINNHUB_API_KEY}"
-    res = requests.get(url)
-    if res.status_code == 200:
-        return [s['symbol'] for s in res.json() if s.get("type") == "Common Stock"]
+def fetch_stock_symbols():
+    url = f"https://finnhub.io/api/v1/stock/symbol?exchange=US&token={API_KEY}"
+    try:
+        res = requests.get(url)
+        if res.status_code == 200:
+            return [s['symbol'] for s in res.json() if s.get("type") == "Common Stock"]
+    except:
+        pass
     return []
 
 def get_metrics(symbol):
@@ -43,86 +46,75 @@ def get_metrics(symbol):
 
         return {
             "symbol": symbol,
-            "current_price": quote.get("c"),
-            "previous_close": quote.get("pc"),
-            "market_cap": profile.get("marketCapitalization"),
+            "price": quote.get("c"),
+            "prev_close": quote.get("pc"),
             "volume": quote.get("v"),
-            "rel_vol": stats.get("metric", {}).get("relativeVolume")
+            "rel_vol": stats.get("metric", {}).get("relativeVolume"),
+            "market_cap": profile.get("marketCapitalization")
         }
     except:
         return None
 
-def send_telegram_message(text):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": text}
-    try:
-        requests.post(url, data=data)
-    except:
-        pass
-
-def scan_and_alert():
-    if not is_market_hours():
-        return
-
-    now_str = datetime.now(TIMEZONE).strftime("%I:%M %p")
-    send_telegram_message(f"📡 Live Market scan triggered @ {now_str}")
-    symbols = fetch_stocks()
-    found_any = False
+def scan_stocks():
+    symbols = fetch_stock_symbols()
+    matching_stocks = []
 
     for symbol in symbols:
-        metrics = get_metrics(symbol)
-        if not metrics:
+        data = get_metrics(symbol)
+        if not data:
             continue
 
-        price = metrics["current_price"]
-        prev_close = metrics["previous_close"]
-        cap = metrics["market_cap"]
-        volume = metrics["volume"]
-        rel_vol = metrics["rel_vol"]
+        price = data["price"]
+        prev_close = data["prev_close"]
+        volume = data["volume"]
+        rel_vol = data["rel_vol"]
+        cap = data["market_cap"]
 
-        if not all([price, prev_close, cap, volume, rel_vol]):
+        if not all([price, prev_close, volume, rel_vol, cap]):
             continue
 
         if price > PRICE_LIMIT:
             continue
 
-        percent_change = ((price - prev_close) / prev_close) * 100 if prev_close else 0
-        if percent_change < GAP_PERCENT:
+        change_percent = ((price - prev_close) / prev_close) * 100 if prev_close else 0
+        if change_percent < GAP_PERCENT:
             continue
 
-        if volume < VOLUME_MIN:
+        if volume < VOLUME_MIN or rel_vol < REL_VOL_MIN:
             continue
 
-        if rel_vol < REL_VOL_MIN:
-            continue
+        matching_stocks.append({
+            "symbol": symbol,
+            "price": price,
+            "prev_close": prev_close,
+            "change": change_percent,
+            "volume": volume,
+            "rel_vol": rel_vol,
+            "cap": cap
+        })
 
-        found_any = True
-
-        change_diff = " 📈" if percent_change > 0 else " 📉"
-        msg = (
-            f"🔥 ${symbol} ALERT @ {now_str}\n"
-            f"Price: ${price:.2f} | Prev Close: ${prev_close:.2f}\n"
-            f"Change: {percent_change:.1f}%{change_diff}\n"
-            f"Volume: {volume:,} | Rel Vol: {rel_vol:.2f}\n"
-            f"Market Cap: ${cap:.0f}M"
-        )
-        send_telegram_message(msg)
-
-    if not found_any:
-        send_telegram_message("❌ No stocks matched criteria in this scan.")
+    now_str = datetime.now().strftime("%I:%M %p EST")
+    if matching_stocks:
+        matching_stocks.sort(key=lambda x: x["change"], reverse=True)
+        message = f"\U0001F680 Top Exploding Stocks @ {now_str} (Live Market):\n"
+        for stock in matching_stocks[:10]:
+            message += (f"- ${stock['symbol']}: {stock['change']:.2f}%\n"
+                        f"  Price: ${stock['price']:.2f} | Prev: ${stock['prev_close']:.2f}\n"
+                        f"  Vol: {stock['volume']:,} | RelVol: {stock['rel_vol']:.2f}\n\n")
+        send_telegram_message(message.strip())
+    else:
+        send_telegram_message(f"No stocks matched the criteria as of {now_str}.")
 
 @app.route("/")
 def home():
-    return "Live market scanner running."
+    return "Live market scanner running..."
 
 @app.route("/scan")
 def scan():
-    scan_and_alert()
-    return "Scan complete."
+    scan_stocks()
+    return "Scan done."
 
-if __name__ == '__main__':
-    from threading import Thread
-
+if __name__ == "__main__":
     def ping_self():
         while True:
             try:
@@ -131,5 +123,5 @@ if __name__ == '__main__':
                 pass
             time.sleep(600)  # every 10 minutes
 
-    Thread(target=ping_self).start()
+    threading.Thread(target=ping_self).start()
     app.run(host="0.0.0.0", port=10000)
