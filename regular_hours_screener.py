@@ -11,8 +11,8 @@ CHAT_ID = os.environ.get("chat_id")
 
 app = Flask(__name__)
 
-PRICE_LIMIT = 5.00
-GAP_PERCENT = 10
+PRICE_LIMIT = 5.00  # Price must be under or equal to $5
+GAP_PERCENT = 10     # Change must be >= 10%
 VOLUME_MIN = 1_000_000
 REL_VOL_MIN = 2
 
@@ -56,7 +56,7 @@ def get_metrics(symbol):
         return None
 
 def scan_stocks():
-    print(f"Scanning stocks at {datetime.now()}")  # Debug
+    print(f"Scanning stocks at {datetime.now()}")  # For debug
     symbols = fetch_stock_symbols()
     matching_stocks = []
 
@@ -115,14 +115,9 @@ def scan():
     scan_stocks()
     return "Scan done."
 
-# ✅ Temporary Debug Route to test API connectivity
-@app.route("/test-api")
-def test_api():
-    try:
-        response = requests.get(f"https://finnhub.io/api/v1/quote?symbol=AAPL&token={API_KEY}")
-        return str(response.json())
-    except Exception as e:
-        return str(e)
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
 
 if __name__ == "__main__":
     def ping_self():
