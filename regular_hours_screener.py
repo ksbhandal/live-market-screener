@@ -119,9 +119,10 @@ if __name__ == "__main__":
     def ping_self():
         while True:
             try:
+                print("Triggering /scan from self-ping...")  # Optional debug log
                 requests.get("https://live-market-screener.onrender.com/scan")
-            except:
-                pass
+            except Exception as e:
+                print(f"Ping failed: {e}")
             time.sleep(600)  # every 10 minutes
 
     threading.Thread(target=ping_self).start()
