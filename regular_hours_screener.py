@@ -56,6 +56,7 @@ def get_metrics(symbol):
         return None
 
 def scan_stocks():
+    print(f"Scanning stocks at {datetime.now()}")  # For debug
     symbols = fetch_stock_symbols()
     matching_stocks = []
 
