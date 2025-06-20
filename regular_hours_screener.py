@@ -12,7 +12,7 @@ CHAT_ID = os.environ.get("chat_id")
 app = Flask(__name__)
 
 PRICE_LIMIT = 5.00
-GAP_PERCENT = 10
+GAP_PERCENT = 10.01  # Must be over 10% strictly
 VOLUME_MIN = 1_000_000
 REL_VOL_MIN = 2
 
@@ -25,8 +25,8 @@ def send_telegram_message(message):
     payload = {"chat_id": CHAT_ID, "text": message}
     try:
         requests.post(url, data=payload)
-    except Exception as e:
-        print(f"Error sending Telegram message: {e}")
+    except:
+        pass
 
 def fetch_stock_symbols():
     url = f"https://finnhub.io/api/v1/stock/symbol?exchange=US&token={API_KEY}"
@@ -34,8 +34,8 @@ def fetch_stock_symbols():
         res = requests.get(url)
         if res.status_code == 200:
             return [s['symbol'] for s in res.json() if s.get("type") == "Common Stock"]
-    except Exception as e:
-        print(f"Error fetching stock symbols: {e}")
+    except:
+        pass
     return []
 
 def get_metrics(symbol):
@@ -52,16 +52,21 @@ def get_metrics(symbol):
             "rel_vol": stats.get("metric", {}).get("relativeVolume"),
             "market_cap": profile.get("marketCapitalization")
         }
-    except Exception as e:
-        print(f"Error getting metrics for {symbol}: {e}")
+    except:
         return None
 
 def scan_stocks():
-    print(f"Scanning stocks at {datetime.now()}")
+    print(f"[SCAN TRIGGERED] {datetime.now()}")
     symbols = fetch_stock_symbols()
+    if not symbols:
+        send_telegram_message("⚠️ No symbols fetched from Finnhub. Possible API issue.")
+        return
+
     matching_stocks = []
+    checked = 0
 
     for symbol in symbols:
+        checked += 1
         data = get_metrics(symbol)
         if not data:
             continue
@@ -96,8 +101,6 @@ def scan_stocks():
         })
 
     now_str = datetime.now().strftime("%I:%M %p EST")
-    print(f"Total matches: {len(matching_stocks)}")
-
     if matching_stocks:
         matching_stocks.sort(key=lambda x: x["change"], reverse=True)
         message = f"\U0001F680 Top Exploding Stocks @ {now_str} (Live Market):\n"
@@ -107,7 +110,7 @@ def scan_stocks():
                         f"  Vol: {stock['volume']:,} | RelVol: {stock['rel_vol']:.2f}\n\n")
         send_telegram_message(message.strip())
     else:
-        send_telegram_message(f"No stocks matched the criteria as of {now_str}.")
+        send_telegram_message(f"No stocks matched criteria (out of {checked}) @ {now_str}.")
 
 @app.route("/")
 def home():
