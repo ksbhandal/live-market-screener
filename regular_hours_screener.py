@@ -121,6 +121,15 @@ def scan():
     scan_stocks()
     return "Scan done."
 
+@app.route("/test-api")
+def test_api():
+    try:
+        response = requests.get("https://finnhub.io/api/v1/quote?symbol=AAPL&token=" + API_KEY)
+        return str(response.json())
+    except Exception as e:
+        return str(e)
+
+
 if __name__ == "__main__":
     def ping_self():
         while True:
