@@ -1,112 +1,124 @@
 import os
-import time
 import requests
-import pytz
 from datetime import datetime
 from flask import Flask
-from threading import Thread
+import pytz
+import time
 
 app = Flask(__name__)
 
-# === Configuration ===
-API_KEY = os.getenv("FINNHUB_API_KEY")
-BOT_TOKEN = os.getenv("bot_token")
-CHAT_ID = os.getenv("chat_id")
+BOT_TOKEN = os.environ.get("bot_token")
+CHAT_ID = os.environ.get("chat_id")
+FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY")
 
-# === Scanner Logic ===
-def scan_and_alert():
-    est = pytz.timezone('US/Eastern')
-    now = datetime.now(est)
+HEADERS = {
+    "X-Finnhub-Token": FINNHUB_API_KEY
+}
 
-    # Run only during regular market hours (9:30 AM to 4:00 PM EST)
-    market_start = now.replace(hour=9, minute=30, second=0, microsecond=0)
-    market_end = now.replace(hour=16, minute=0, second=0, microsecond=0)
-    if not (market_start <= now <= market_end):
-        print("Outside live market hours (9:30 AM to 4:00 PM EST). Skipping scan.")
-        return
+PRICE_LIMIT = 5.00
+GAP_PERCENT = 10
+VOLUME_MIN = 1000000
+REL_VOL_MIN = 2
+TIMEZONE = pytz.timezone("US/Eastern")
+SCAN_HOURS = range(9, 16)  # 9:00 AM to 3:59 PM EST
 
-    print("\n[INFO] Live market scan triggered at:", now.strftime("%Y-%m-%d %H:%M:%S"))
+last_alerted = {}
 
-    url = f"https://finnhub.io/api/v1/stock/symbol?exchange=US&token={API_KEY}"
+def is_market_hours():
+    now = datetime.now(TIMEZONE)
+    return now.hour in SCAN_HOURS
+
+def fetch_stocks():
+    url = f"https://finnhub.io/api/v1/stock/symbol?exchange=US&token={FINNHUB_API_KEY}"
+    res = requests.get(url)
+    if res.status_code == 200:
+        return [s['symbol'] for s in res.json() if s.get("type") == "Common Stock"]
+    return []
+
+def get_metrics(symbol):
     try:
-        response = requests.get(url)
-        symbols = response.json()
-    except Exception as e:
-        print("[ERROR] Failed to fetch symbols:", e)
+        quote = requests.get(f"https://finnhub.io/api/v1/quote?symbol={symbol}", headers=HEADERS).json()
+        profile = requests.get(f"https://finnhub.io/api/v1/stock/profile2?symbol={symbol}", headers=HEADERS).json()
+        stats = requests.get(f"https://finnhub.io/api/v1/stock/metric?symbol={symbol}&metric=all", headers=HEADERS).json()
+
+        return {
+            "symbol": symbol,
+            "current_price": quote.get("c"),
+            "previous_close": quote.get("pc"),
+            "market_cap": profile.get("marketCapitalization"),
+            "volume": quote.get("v"),
+            "rel_vol": stats.get("metric", {}).get("relativeVolume")
+        }
+    except:
+        return None
+
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    data = {"chat_id": CHAT_ID, "text": text}
+    try:
+        requests.post(url, data=data)
+    except:
+        pass
+
+def scan_and_alert():
+    if not is_market_hours():
         return
 
-    alerts = []
-    for stock in symbols:
-        try:
-            symbol = stock['symbol']
+    now_str = datetime.now(TIMEZONE).strftime("%I:%M %p")
+    send_telegram_message(f"📡 Live Market scan triggered @ {now_str}")
+    symbols = fetch_stocks()
+    found_any = False
 
-            # Basic filter: penny stocks under $5
-            quote_url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token={API_KEY}"
-            q = requests.get(quote_url).json()
-
-            c = q.get("c")   # current price
-            pc = q.get("pc") # previous close
-            v = q.get("v")   # volume
-
-            if not all([c, pc, v]) or c > 5:
-                continue
-
-            # Filter: 10%+ gain from open
-            percent_change = ((c - pc) / pc) * 100 if pc else 0
-            if percent_change < 10:
-                continue
-
-            # Filter: volume > 1M
-            if v < 1_000_000:
-                continue
-
-            # Filter: market cap < 300M
-            profile_url = f"https://finnhub.io/api/v1/stock/profile2?symbol={symbol}&token={API_KEY}"
-            p = requests.get(profile_url).json()
-            market_cap = p.get("marketCapitalization", 9999)
-            if market_cap > 300:
-                continue
-
-            # Relative volume
-            metrics_url = f"https://finnhub.io/api/v1/stock/metric?symbol={symbol}&metric=all&token={API_KEY}"
-            m = requests.get(metrics_url).json()
-            rel_vol = m.get("metric", {}).get("relativeVolume", 0)
-            if rel_vol < 2:
-                continue
-
-            alert_msg = f"🚀 ${symbol} up {percent_change:.1f}% | Price: ${c:.2f} | Vol: {v:,} | RelVol: {rel_vol:.2f}"
-            alerts.append(alert_msg)
-        except:
+    for symbol in symbols:
+        metrics = get_metrics(symbol)
+        if not metrics:
             continue
 
-    if alerts:
-        message = "\n".join(alerts)
-    else:
-        message = "🔄 Live market scan triggered."
+        price = metrics["current_price"]
+        prev_close = metrics["previous_close"]
+        cap = metrics["market_cap"]
+        volume = metrics["volume"]
+        rel_vol = metrics["rel_vol"]
 
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            data={"chat_id": CHAT_ID, "text": message}
+        if not all([price, prev_close, cap, volume, rel_vol]):
+            continue
+
+        if price > PRICE_LIMIT:
+            continue
+
+        percent_change = ((price - prev_close) / prev_close) * 100 if prev_close else 0
+        if percent_change < GAP_PERCENT:
+            continue
+
+        if volume < VOLUME_MIN:
+            continue
+
+        if rel_vol < REL_VOL_MIN:
+            continue
+
+        found_any = True
+
+        change_diff = " 📈" if percent_change > 0 else " 📉"
+        msg = (
+            f"🔥 ${symbol} ALERT @ {now_str}\n"
+            f"Price: ${price:.2f} | Prev Close: ${prev_close:.2f}\n"
+            f"Change: {percent_change:.1f}%{change_diff}\n"
+            f"Volume: {volume:,} | Rel Vol: {rel_vol:.2f}\n"
+            f"Market Cap: ${cap:.0f}M"
         )
-    except Exception as e:
-        print("[ERROR] Telegram failed:", e)
+        send_telegram_message(msg)
 
-# === Self-pinging route for UptimeRobot ===
-@app.route('/')
+    if not found_any:
+        send_telegram_message("❌ No stocks matched criteria in this scan.")
+
+@app.route("/")
 def home():
-    return "Live Market Screener Running"
+    return "Live market scanner running."
 
-@app.route('/scan')
-def manual_scan():
+@app.route("/scan")
+def scan():
     scan_and_alert()
-    return "Scan triggered"
-
-# === Start Scheduled Scanning Thread ===
-def schedule_loop():
-    while True:
-        scan_and_alert()
-        time.sleep(600)  # every 10 minutes
+    return "Scan complete."
 
 if __name__ == '__main__':
     from threading import Thread
@@ -121,4 +133,3 @@ if __name__ == '__main__':
 
     Thread(target=ping_self).start()
     app.run(host="0.0.0.0", port=10000)
-
