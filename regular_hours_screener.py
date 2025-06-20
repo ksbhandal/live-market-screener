@@ -25,8 +25,8 @@ def send_telegram_message(message):
     payload = {"chat_id": CHAT_ID, "text": message}
     try:
         requests.post(url, data=payload)
-    except:
-        pass
+    except Exception as e:
+        print(f"Error sending Telegram message: {e}")
 
 def fetch_stock_symbols():
     url = f"https://finnhub.io/api/v1/stock/symbol?exchange=US&token={API_KEY}"
@@ -34,8 +34,8 @@ def fetch_stock_symbols():
         res = requests.get(url)
         if res.status_code == 200:
             return [s['symbol'] for s in res.json() if s.get("type") == "Common Stock"]
-    except:
-        pass
+    except Exception as e:
+        print(f"Error fetching stock symbols: {e}")
     return []
 
 def get_metrics(symbol):
@@ -52,11 +52,12 @@ def get_metrics(symbol):
             "rel_vol": stats.get("metric", {}).get("relativeVolume"),
             "market_cap": profile.get("marketCapitalization")
         }
-    except:
+    except Exception as e:
+        print(f"Error getting metrics for {symbol}: {e}")
         return None
 
 def scan_stocks():
-    print(f"Scanning stocks at {datetime.now()}")  # For debug
+    print(f"Scanning stocks at {datetime.now()}")
     symbols = fetch_stock_symbols()
     matching_stocks = []
 
@@ -74,11 +75,11 @@ def scan_stocks():
         if not all([price, prev_close, volume, rel_vol, cap]):
             continue
 
-        if price > PRICE_LIMIT:
+        if price >= PRICE_LIMIT:
             continue
 
         change_percent = ((price - prev_close) / prev_close) * 100 if prev_close else 0
-        if change_percent < GAP_PERCENT:
+        if change_percent <= GAP_PERCENT:
             continue
 
         if volume < VOLUME_MIN or rel_vol < REL_VOL_MIN:
@@ -95,6 +96,8 @@ def scan_stocks():
         })
 
     now_str = datetime.now().strftime("%I:%M %p EST")
+    print(f"Total matches: {len(matching_stocks)}")
+
     if matching_stocks:
         matching_stocks.sort(key=lambda x: x["change"], reverse=True)
         message = f"\U0001F680 Top Exploding Stocks @ {now_str} (Live Market):\n"
@@ -119,11 +122,10 @@ if __name__ == "__main__":
     def ping_self():
         while True:
             try:
-                print("Triggering /scan from self-ping...")  # Optional debug log
                 requests.get("https://live-market-screener.onrender.com/scan")
-            except Exception as e:
-                print(f"Ping failed: {e}")
-            time.sleep(600)  # every 10 minutes
+            except:
+                pass
+            time.sleep(600)
 
     threading.Thread(target=ping_self).start()
     app.run(host="0.0.0.0", port=10000)
