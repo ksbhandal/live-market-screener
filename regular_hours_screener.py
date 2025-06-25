@@ -31,12 +31,11 @@ def scrape_and_notify():
                 {"left": "volume", "operation": "greater", "right": 1000000},
                 {"left": "market_cap_basic", "operation": "less", "right": 300000000},
                 {"left": "market_cap_basic", "operation": "greater", "right": 10000000},
-                {"left": "close", "operation": "less", "right": 5},
-                {"left": "relative_volume_15", "operation": "greater", "right": 2}
+                {"left": "close", "operation": "less", "right": 5}
             ],
             "options": {"lang": "en"},
             "symbols": {"query": {"types": []}, "tickers": []},
-            "columns": ["name", "close", "change", "volume", "market_cap_basic", "relative_volume_15"],
+            "columns": ["name", "close", "change", "volume", "market_cap_basic"],
             "sort": {"sortBy": "change", "sortOrder": "desc"},
             "range": [0, 50],
         }
@@ -67,7 +66,7 @@ def scrape_and_notify():
         results = []
         for row in data:
             values = row.get("d", [])
-            if len(values) < 6:
+            if len(values) < 5:
                 continue
 
             symbol = row.get("s", "")
@@ -75,10 +74,9 @@ def scrape_and_notify():
             change_pct = values[2]
             volume = values[3]
             market_cap = values[4]
-            rel_vol = values[5]
 
             results.append(
-                f"{symbol} | Price: {price:.4f} | Change: {change_pct:.2f}% | Vol: {int(volume)} | MCap: {int(market_cap)} | RVOL: {rel_vol:.2f}"
+                f"{symbol} | Price: {price:.4f} | Change: {change_pct:.2f}% | Vol: {int(volume)} | MCap: {int(market_cap)}"
             )
 
         if results:
@@ -107,7 +105,7 @@ if __name__ == "__main__":
     def ping_self():
         while True:
             now = est_now()
-            if 9 <= now.hour < 16:  # 9:00 to 3:59 PM EST
+            if 9 <= now.hour < 16:  # 9:00 AM to 3:59 PM EST
                 try:
                     print(f"[Self-Ping] Triggering live scan @ {now.strftime('%I:%M %p')} EST")
                     requests.get(f"{SELF_URL}/scan")
