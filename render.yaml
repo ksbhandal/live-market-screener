@@ -1,7 +1,7 @@
 services:
   - type: web
-    name: LiveMarketScreener
+    name: tradingview_bot
     env: python
-    buildCommand: ""
-    startCommand: "python regular_hours_screener.py"
+    buildCommand: ./build.sh
+    startCommand: python3 tradingview_bot.py
     plan: free
