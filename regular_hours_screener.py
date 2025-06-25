@@ -18,7 +18,7 @@ def est_now():
 def send_telegram_message(message):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": CHAT_ID, "text": message})
+        requests.post(url, data={"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"})
     except Exception as e:
         print(f"Telegram error: {e}")
 
@@ -76,12 +76,15 @@ def scrape_and_notify():
             market_cap = values[4]
 
             results.append(
-                f"{symbol} | Price: {price:.4f} | Change: {change_pct:.2f}% | Vol: {int(volume)} | MCap: {int(market_cap)}"
+                f"📈 *{symbol}*\n"
+                f"💵 Price: ${price:.4f}   | 📊 Change: +{change_pct:.2f}%\n"
+                f"📦 Volume: {int(volume):,}  | 🏦 MCap: ${int(market_cap):,}\n"
             )
 
         if results:
-            msg = f"📈 *Live Market Explosive Gainers* @ {est_now().strftime('%I:%M %p')} EST\n\n"
-            msg += "\n".join(results[:25])
+            msg = f"📊 *Live Market Explosive Gainers* @ {est_now().strftime('%I:%M %p')} EST\n"
+            msg += f"🧮 Total: {len(results)} stocks\n\n"
+            msg += "\n".join(results)
             send_telegram_message(msg)
         else:
             send_telegram_message("📉 No explosive gainers found right now.")
